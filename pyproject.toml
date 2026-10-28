@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "alebrije"
+version = "0.1.0"
+description = "A local, open-weight AI spirit guide for your media archive"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+
+[project.scripts]
+alebrije = "alebrije.cli:main"
+
+[tool.setuptools]
+packages = ["alebrije"]
