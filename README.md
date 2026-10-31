@@ -129,7 +129,7 @@ python3 -m unittest discover -t . -s alebrije/tests   # or:
 python alebrije.py selftest
 ```
 
-132 offline tests cover the scanner (including a hand-built EXIF+GPS JPEG),
+146 offline tests cover the scanner (including a hand-built EXIF+GPS JPEG),
 tag parsing, people matching, vector math, search sorting, the bootstrap
 asset picker, server lifecycle, the web API (real HTTP on an ephemeral
 port), and the CLI — all with fake model servers, no network, no GPU.

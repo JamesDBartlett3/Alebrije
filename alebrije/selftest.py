@@ -29,7 +29,8 @@ TEST_MODULES = [
 
 def run() -> int:
     suite = unittest.TestSuite()
+    loader = unittest.TestLoader()
     for name in TEST_MODULES:
-        suite.addTests(unittest.loadTestsFromName(name))
+        suite.addTests(loader.loadTestsFromName(name))
     result = unittest.TextTestRunner(verbosity=1).run(suite)
     return 0 if result.wasSuccessful() else 1
