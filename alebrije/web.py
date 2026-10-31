@@ -108,7 +108,7 @@ def _lan_urls(port: int) -> list[str]:
 
 
 class BattenHandler(BaseHTTPRequestHandler):
-    server_version = "alebrije/0.1"
+    server_version = "alebrije/0.2"
 
     cfg: dict = {}
     conn = None
@@ -367,7 +367,10 @@ async function showPeople(){
   const dlg=document.getElementById("peopleDlg");
   const res=await api("/api/people");
   document.getElementById("peopleList").innerHTML =
-    (res.people||[]).map(p=>`<div>👤 <b style="color:var(--cempa)">${esc(p.name)}</b> — ${esc(p.description)} <span style="color:#8a6fae">(${p.tagged_media} media)</span></div>`).join("")
+    (res.people||[]).map(p=>`<div>👤 <b style="color:var(--cempa)">${esc(p.name)}</b> — ${esc(p.description)} `
+      +`<span style="color:#8a6fae">(${p.tagged_media} media · ${p.face_count||0} faces)</span>`
+      +(p.unnamed?` <span class="badge person">unnamed — <code style="background:none;color:var(--cempa)">alebrije person rename</code></span>`:""))
+      .join("")
     || "<i style='color:#a98cc7'>Nobody introduced yet. Add someone from a sample photo's description.</i>";
   dlg.showModal();
 }

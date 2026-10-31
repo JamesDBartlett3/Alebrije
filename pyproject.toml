@@ -4,11 +4,15 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "alebrije"
-version = "0.1.0"
+version = "0.2.0"
 description = "A local, open-weight AI spirit guide for your media archive"
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
+dependencies = [
+    "onnxruntime>=1.20",
+    "Pillow>=10.0",
+]
 
 [project.scripts]
 alebrije = "alebrije.cli:main"

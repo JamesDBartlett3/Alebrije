@@ -200,6 +200,43 @@ def patched_llm(fake: FakeLlm):
         vectors.embed_one = orig_vembed
 
 
+class FakeFaces:
+    """Patch target for the face pipeline: canned detections per path.
+
+    `detections` maps a path suffix (or "*" for any) to a list of
+    {"bbox": (x, y, w, h), "det_score": float, "embedding": [floats]}.
+    """
+
+    def __init__(self, detections=None, ok: bool = True):
+        self.detections = detections or {}
+        self.ok = ok
+        self.calls: list = []
+
+    def available(self, cfg):
+        return {"onnxruntime": True, "detector": self.ok,
+                "recognizer": self.ok, "ok": self.ok}
+
+    def embed_faces(self, cfg, path):
+        self.calls.append(path)
+        for key, val in self.detections.items():
+            if key == "*" or path.replace("\\", "/").endswith(key):
+                return [dict(f) for f in val]
+        return []
+
+
+@contextlib.contextmanager
+def patched_faces(fake: FakeFaces):
+    """Point every face-model call at a FakeFaces; restores on exit."""
+    from alebrije import faces
+    orig_avail, orig_embed = faces.available, faces.embed_faces
+    faces.available = fake.available
+    faces.embed_faces = fake.embed_faces
+    try:
+        yield fake
+    finally:
+        faces.available, faces.embed_faces = orig_avail, orig_embed
+
+
 def sample_db():
     """Fresh in-memory-ish db (tmp file) with a couple of media rows."""
     from alebrije import db as dbmod

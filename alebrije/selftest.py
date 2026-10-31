@@ -13,6 +13,7 @@ TEST_MODULES = [
     "alebrije.tests.test_db",
     "alebrije.tests.test_scanner",
     "alebrije.tests.test_llm",
+    "alebrije.tests.test_faces",
     "alebrije.tests.test_places",
     "alebrije.tests.test_tagger",
     "alebrije.tests.test_people",

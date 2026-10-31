@@ -26,11 +26,12 @@ CREATE TABLE IF NOT EXISTS media (
     error       TEXT
 );
 CREATE TABLE IF NOT EXISTS people (
-    id          INTEGER PRIMARY KEY,
-    name        TEXT UNIQUE NOT NULL,
-    description TEXT NOT NULL,            -- vision-model description of this person
-    ref_media   TEXT,                     -- path of the sample photo they were introduced from
-    created_at  TEXT NOT NULL
+    id            INTEGER PRIMARY KEY,
+    name          TEXT UNIQUE NOT NULL,
+    description   TEXT NOT NULL,          -- vision-model description of this person
+    ref_media     TEXT,                   -- path of the sample photo they were introduced from
+    face_centroid BLOB,                   -- L2-normalized face embedding (0 = no face yet)
+    created_at    TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS person_tags (
     media_id    INTEGER NOT NULL REFERENCES media(id),
@@ -41,9 +42,31 @@ CREATE TABLE IF NOT EXISTS embeddings (
     media_id    INTEGER PRIMARY KEY REFERENCES media(id),
     vec         BLOB NOT NULL            -- float32 little-endian, 768-d nomic
 );
+CREATE TABLE IF NOT EXISTS faces (
+    id          INTEGER PRIMARY KEY,
+    media_id    INTEGER NOT NULL REFERENCES media(id),
+    person_id   INTEGER REFERENCES people(id),   -- NULL until matched/named
+    bbox_x      INTEGER NOT NULL,
+    bbox_y      INTEGER NOT NULL,
+    bbox_w      INTEGER NOT NULL,
+    bbox_h      INTEGER NOT NULL,
+    det_score   REAL NOT NULL,
+    embedding   BLOB NOT NULL,            -- float32 little-endian, 512-d AdaFace
+    created_at  TEXT NOT NULL
+);
 CREATE INDEX IF NOT EXISTS idx_media_type ON media(media_type);
 CREATE INDEX IF NOT EXISTS idx_media_tagged ON media(tagged);
+CREATE INDEX IF NOT EXISTS idx_faces_media ON faces(media_id);
+CREATE INDEX IF NOT EXISTS idx_faces_person ON faces(person_id);
 """
+
+
+def _migrate(conn: sqlite3.Connection) -> None:
+    """Add columns that postdate v0.1.0 databases, in place."""
+    people_cols = {r["name"] for r in conn.execute("PRAGMA table_info(people)")}
+    if "face_centroid" not in people_cols:
+        conn.execute("ALTER TABLE people ADD COLUMN face_centroid BLOB")
+        conn.commit()
 
 
 def connect(path) -> sqlite3.Connection:
@@ -52,6 +75,7 @@ def connect(path) -> sqlite3.Connection:
     conn = sqlite3.connect(str(path), check_same_thread=False)
     conn.row_factory = sqlite3.Row
     conn.executescript(SCHEMA)
+    _migrate(conn)
     return conn
 
 

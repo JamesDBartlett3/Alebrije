@@ -6,9 +6,11 @@ and Windows:
 1. detects GPU/NPU hardware (accel.py) and picks the matching llama.cpp
    prebuilt build from the llama.cpp GitHub releases API — no compiler,
    no package manager;
-2. downloads the three open-weight GGUF models (Gemma 3 4B vision model +
-   its multimodal projector, and nomic-embed-text) from Hugging Face,
-   resumable, into ~/.alebrije/models.
+2. downloads the open-weight models into ~/.alebrije/models, resumable:
+   the three GGUFs (Gemma 3 4B vision model + its multimodal projector,
+   and nomic-embed-text) from Hugging Face, plus the two face-recognition
+   ONNX models (SCRFD-10GF detection, AdaFace ir101 recognition) from the
+   adaface-onnx GitHub release.
 
 Everything lands in ~/.alebrije — the app itself is stdlib-only Python, so
 the only hard prerequisite is Python 3.10+.
@@ -45,6 +47,18 @@ MODELS = [
         "file": "nomic-embed-text-v1.5-q8_0.gguf",
         "url": "https://huggingface.co/nomic-ai/nomic-embed-text-v1.5-GGUF/resolve/main/nomic-embed-text-v1.5-Q8_0.gguf",
         "role": "embeddings (the memory index)",
+    },
+    {
+        "name": "scrfd-10gf (det_10g)",
+        "file": "det_10g.onnx",
+        "url": "https://github.com/yakhyo/adaface-onnx/releases/download/weights/det_10g.onnx",
+        "role": "face detection (SCRFD-10GF)",
+    },
+    {
+        "name": "adaface-ir101",
+        "file": "adaface_ir_101.onnx",
+        "url": "https://github.com/yakhyo/adaface-onnx/releases/download/weights/adaface_ir_101.onnx",
+        "role": "face recognition (512-d embeddings)",
     },
 ]
 

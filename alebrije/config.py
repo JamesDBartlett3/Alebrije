@@ -22,10 +22,15 @@ DEFAULTS = {
     "web_host": "0.0.0.0",
     "web_port": 8799,
     "tag_min_confidence": 0.0,         # reserved: model returns tags unlabeled
-    "match_threshold": 0.52,           # cosine floor for description-embedding people match
     "llm_timeout": 300,                # vision calls on CPU are slow
     "embed_timeout": 60,
     "thumb_size": 640,                 # max served image dimension hint (client-side)
+    # face recognition (SCRFD detection + AdaFace embeddings, all local)
+    "face_auto_threshold": 0.5,        # cosine >= this: auto-assign to a known person
+    "face_gray_low": 0.36,             # cosine below this: never a match; between -> ask Gemma
+    "face_cluster_threshold": 0.42,    # cosine >= this: unassigned faces cluster together
+    "face_adjudicate_limit": 100,      # max Gemma gray-band confirmations per `name` run
+    "face_tiling": True,               # 1:1 tiled detection pass over large photos
 }
 
 

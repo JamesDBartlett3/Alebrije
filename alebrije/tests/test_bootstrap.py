@@ -65,15 +65,18 @@ class TestLlamaServerPath(unittest.TestCase):
 
 
 class TestModels(unittest.TestCase):
-    def test_three_models_declared(self):
-        self.assertEqual(len(bootstrap.MODELS), 3)
+    def test_five_models_declared(self):
+        self.assertEqual(len(bootstrap.MODELS), 5)
         names = {m["name"] for m in bootstrap.MODELS}
         self.assertEqual(names, {"gemma-3-4b-it", "gemma-3-4b-mmproj",
-                                 "nomic-embed-text-v1.5"})
+                                 "nomic-embed-text-v1.5",
+                                 "scrfd-10gf (det_10g)", "adaface-ir101"})
 
-    def test_urls_are_huggingface(self):
+    def test_urls_are_official(self):
         for m in bootstrap.MODELS:
-            self.assertTrue(m["url"].startswith("https://huggingface.co/"))
+            self.assertTrue(m["url"].startswith("https://huggingface.co/")
+                            or m["url"].startswith("https://github.com/"),
+                            m["url"])
 
 
 class TestDownload(unittest.TestCase):

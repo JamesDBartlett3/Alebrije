@@ -115,6 +115,35 @@ def cmd_tag(cfg, args) -> int:
     return 0
 
 
+def _learn_face(cfg, photo: str | None, name: str) -> list[float] | None:
+    """Face embedding from the sample photo, or None (description-only)."""
+    if not photo:
+        return None
+    try:
+        from . import faces
+        if not faces.available(cfg)["ok"]:
+            return None
+        found = faces.embed_faces(cfg, photo)
+        if not found:
+            print(f"• no face detected in {os.path.basename(photo)} — "
+                  f"{name} will be matched by description only")
+            return None
+        if len(found) > 1:
+            print(f"There is more than one face in that photo. Which one is {name}?")
+            for i, f in enumerate(found):
+                print(f"  {i}: {f['bbox'][2]}x{f['bbox'][3]} px "
+                      f"(score {f['det_score']:.2f})")
+            pick = input("number: ").strip()
+            try:
+                return found[int(pick)]["embedding"]
+            except (ValueError, IndexError):
+                return None
+        return found[0]["embedding"]
+    except Exception as exc:  # noqa: BLE001 — face learning is optional, never fatal
+        print(f"• faces unavailable ({str(exc)[:100]}) — matching by description only")
+        return None
+
+
 def cmd_person(cfg, args) -> int:
     conn = _db(cfg)
     if args.which == "add":
@@ -122,11 +151,12 @@ def cmd_person(cfg, args) -> int:
             print("Usage: alebrije person add <Name> --photo <sample.jpg> [--note \"...\"]")
             return 1
         desc = args.note or ""
-        if args.photo and not desc:
-            photo = os.path.abspath(os.path.expanduser(args.photo))
-            if not os.path.isfile(photo):
-                print(f"❌ no such photo: {photo}")
-                return 1
+        photo = (os.path.abspath(os.path.expanduser(args.photo))
+                 if args.photo else None)
+        if photo and not os.path.isfile(photo):
+            print(f"❌ no such photo: {photo}")
+            return 1
+        if photo and not desc:
             try:
                 raw = llm.extract_json(llm.describe_image(cfg, photo, tagger.TAG_PROMPT))
                 people_seen = raw.get("people") or []
@@ -150,12 +180,15 @@ def cmd_person(cfg, args) -> int:
                     return 1
             else:
                 desc = str(people_seen[0].get("description", ""))
-        pid = people.add_person(conn, args.name, desc, args.photo)
-        print(f"👤 added {args.name} to the people book (#{pid}): {desc}")
+        face_emb = _learn_face(cfg, photo, args.name)
+        pid = people.add_person(conn, args.name, desc, photo, face_emb=face_emb)
+        learned = " (face learned)" if face_emb else " (description only)"
+        print(f"👤 added {args.name} to the people book (#{pid}): {desc}{learned}")
         # immediately apply the new name across the archive
         named = people.name_people_in_media(conn, cfg, log=lambda *_: None)
-        if named.get("named"):
-            print(f"👥 matched {named['named']} appearances across the archive")
+        if named.get("assigned") or named.get("confirmed") or named.get("named"):
+            print(f"👥 matched {named['assigned'] + named['confirmed'] + named['named']} "
+                  f"appearances across the archive")
     elif args.which == "list":
         book = people.list_people(conn)
         if not book:
@@ -177,6 +210,55 @@ def cmd_name(cfg, args) -> int:
     conn = _db(cfg)
     res = people.name_people_in_media(conn, cfg, limit=args.limit, log=print)
     print(f"👥 {res}")
+    clustered = people.cluster_unassigned(conn, cfg, log=print)
+    if clustered.get("people"):
+        print("🫂 run `alebrije person list` and `alebrije person rename "
+              "<Unnamed #k> <Name>` to name them")
+    conn.close()
+    return 0
+
+
+def cmd_faces(cfg, args) -> int:
+    from . import faces
+    conn = _db(cfg)
+    if args.purge:
+        n = faces.purge(conn)
+        print(f"🕯️  removed all {n} stored face vectors and centroids")
+        conn.close()
+        return 0
+    try:
+        ok = faces.available(cfg)["ok"]
+    except ImportError:
+        ok = False
+        print("❌ onnxruntime is not installed — reinstall alebrije "
+              "(v0.2+ installs it automatically)")
+    if not ok:
+        print("❌ face models missing — run `alebrije setup` "
+              "(it downloads them automatically)")
+        conn.close()
+        return 1
+    if args.recompute:
+        n = conn.execute("SELECT COUNT(*) c FROM faces").fetchone()["c"]
+        conn.execute("DELETE FROM faces")
+        conn.execute("UPDATE people SET face_centroid=NULL")
+        conn.commit()
+        print(f"🔄 cleared {n} stored faces — recomputing…")
+    try:
+        res = faces.scan_faces(conn, cfg, limit=args.limit, log=print)
+    except faces.FacesUnavailable as exc:
+        print(f"❌ {exc}")
+        conn.close()
+        return 1
+    print(f"👤 scanned {res['media']} media: +{res['faces']} faces, "
+          f"{res['remaining']} media remaining")
+    named = people.name_people_in_media(conn, cfg, log=print)
+    if named.get("assigned") or named.get("confirmed"):
+        print(f"👥 matched {named['assigned'] + named['confirmed']} faces "
+              f"to known people")
+    clustered = people.cluster_unassigned(conn, cfg, log=print)
+    if clustered.get("people"):
+        print("🫂 run `alebrije person list` and `alebrije person rename "
+              "<Unnamed #k> <Name>` to name them")
     conn.close()
     return 0
 
@@ -219,6 +301,15 @@ def cmd_doctor(cfg, args) -> int:
     for m in bootstrap.MODELS:
         present = os.path.isfile(os.path.join(mdir, m["file"]))
         print(f"  {'✅' if present else '⏳'} model {m['name']}")
+    try:
+        from . import faces as _faces
+        av = _faces.available(cfg)
+        bits = [f"onnxruntime {'✅' if av['onnxruntime'] else '❌'}",
+                f"detector {'✅' if av['detector'] else '⏳'}",
+                f"recognizer {'✅' if av['recognizer'] else '⏳'}"]
+        print(f"  {'✅' if av['ok'] else '⏳'} faces: {', '.join(bits)}")
+    except ImportError:
+        print("  ⏳ faces: onnxruntime not installed (reinstall alebrije v0.2+)")
     from . import accel
     info = accel.detect()
     print(f"  ⚡ accelerator: {info['backend']} ({info['note']})")
@@ -312,6 +403,14 @@ def build_parser() -> argparse.ArgumentParser:
     sp = sub.add_parser("name", help="match people-book names across tagged media")
     sp.add_argument("--limit", type=int, default=0)
     sp.set_defaults(func=cmd_name)
+
+    sp = sub.add_parser("faces", help="detect + embed faces, then match people")
+    sp.add_argument("--limit", type=int, default=0)
+    sp.add_argument("--recompute", action="store_true",
+                    help="wipe stored faces and redo them all")
+    sp.add_argument("--purge", action="store_true",
+                    help="delete every face vector (privacy)")
+    sp.set_defaults(func=cmd_faces)
 
     sp = sub.add_parser("places", help="reverse-geocode any GPS-tagged media")
     sp.add_argument("--limit", type=int, default=25)

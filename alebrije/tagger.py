@@ -49,23 +49,29 @@ def filename_tags(path: str) -> list[str]:
     return [w.lower() for w in words if w.lower() not in stop and not w.isdigit()][:10]
 
 
-def extract_frame(video_path: str, at_sec: float = 3.0) -> str | None:
-    """Grab a representative frame with ffmpeg, if it's installed."""
+def extract_frame(video_path: str, at_sec: float = 3.0,
+                  scale: int | None = 1024) -> str | None:
+    """Grab a representative frame with ffmpeg, if it's installed.
+
+    scale=None keeps the frame at native resolution (the faces pass needs
+    every pixel; the vision model is fine with 1024).
+    """
     if not shutil.which("ffmpeg"):
         return None
     fd, out = tempfile.mkstemp(suffix=".jpg")
     os.close(fd)
+    vf = ["-vf", f"scale={scale}:-2"] if scale else []
     try:
         proc = subprocess.run(
             ["ffmpeg", "-y", "-loglevel", "error", "-ss", str(at_sec),
-             "-i", video_path, "-frames:v", "1", "-vf", "scale=1024:-2", out],
+             "-i", video_path, "-frames:v", "1"] + vf + [out],
             capture_output=True, timeout=120)
         if proc.returncode == 0 and os.path.getsize(out) > 1024:
             return out
         # very short clips: retry from the start
         proc = subprocess.run(
             ["ffmpeg", "-y", "-loglevel", "error", "-i", video_path,
-             "-frames:v", "1", "-vf", "scale=1024:-2", out],
+             "-frames:v", "1"] + vf + [out],
             capture_output=True, timeout=120)
         if proc.returncode == 0 and os.path.getsize(out) > 1024:
             return out
@@ -148,9 +154,54 @@ def tag_media(conn, cfg: dict, row, log=print) -> bool:
          result["mood"],
          json.dumps(result["people"]), mid))
     conn.commit()
-    who = f" ({len(result['people'])} people)" if result["people"] else ""
+    who = f" ({len(result['people'])} people)" if result['people'] else ""
+    _face_pass(conn, cfg, row, log)
     log(f"🌼 {os.path.basename(path)}{who}")
     return True
+
+
+def _face_pass(conn, cfg: dict, row, log=print) -> int:
+    """Detect + embed faces for one media row. Never fatal — a missing face
+    stack or a bad file must never cost us the Gemma tags."""
+    if row["media_type"] not in ("image", "video"):
+        return 0
+    try:
+        from . import faces
+    except ImportError:
+        return 0
+    if not faces.available(cfg)["ok"]:
+        return 0
+    path = row["path"]
+    frame = None
+    if row["media_type"] == "video":
+        frame = extract_frame(path, scale=None)  # native res: keep every pixel
+        if not frame:
+            return 0
+        path = frame
+    try:
+        found = faces.embed_faces(cfg, path)
+    except faces.FacesUnavailable as exc:
+        log(f"• {os.path.basename(row['path'])} — faces unavailable ({exc})")
+        return 0
+    except Exception as exc:  # noqa: BLE001 — one bad file must not stop the tag run
+        log(f"⚠️  {os.path.basename(row['path'])} — faces: {str(exc)[:120]}")
+        return 0
+    finally:
+        if frame and os.path.isfile(frame):
+            os.remove(frame)
+    from . import vectors
+    from .people import now_iso
+    conn.execute("DELETE FROM faces WHERE media_id=?", (row["id"],))
+    for f in found:
+        conn.execute(
+            "INSERT INTO faces (media_id, bbox_x, bbox_y, bbox_w, bbox_h,"
+            " det_score, embedding, created_at) VALUES (?,?,?,?,?,?,?,?)",
+            (row["id"], f["bbox"][0], f["bbox"][1], f["bbox"][2], f["bbox"][3],
+             f["det_score"], vectors.encode(f["embedding"]), now_iso()))
+    conn.commit()
+    if found:
+        log(f"👤 {os.path.basename(row['path'])} — {len(found)} face(s)")
+    return len(found)
 
 
 def tag_all(conn, cfg: dict, limit: int = 0, log=print) -> dict:
